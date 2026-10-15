@@ -14,7 +14,7 @@ Run `python3 -m http.server 8000` in this folder and open http://localhost:8000
 
 ## Where the data comes from (all free, no key)
 - Learning path and notes: Wikipedia and Wikibooks (open APIs), and public GitHub repositories.
-- Videos: PeerTube, searched through Sepia Search, ranked by views and likes.
+- Videos: real YouTube videos, but only if you paste a free YouTube key under Customize (it stays in your browser). Without a key, video steps show a YouTube search link, because no free keyless source gave relevant videos.
 - Tests: fill-in-the-blank questions made from the text of that phase's own pages.
 - Nothing here uses an AI model, so notes are auto-summaries, not rewritten explanations.
 
@@ -24,8 +24,3 @@ Run `python3 -m http.server 8000` in this folder and open http://localhost:8000
 - PeerTube has far fewer videos than YouTube. If none match, the step shows a link to search YouTube.
 - Only Wikipedia, Wikibooks and GitHub steps can be turned into notes. Other links need to be read on their own sites.
 - If a public service changes or goes down, that part is skipped or shows a message.
-
-## If a video says "refused to connect"
-Some PeerTube sites don't allow their videos to be shown on other websites. Press **Skip this site**
-under the player: the site is remembered in your browser and its videos are hidden from then on.
-`tube.picasoft.net` is already blocked by default.
