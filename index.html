@@ -275,6 +275,12 @@
     .vcard { grid-template-columns:112px minmax(0,1fr); gap:10px; }
   }
 
+  .yt { padding:10px 0; border-top:1px solid var(--line); }
+  .yt > span { color:var(--muted); font-size:0.9rem; display:block; }
+  .yt .ytf { display:flex; gap:8px; margin-top:8px; }
+  .yt input { flex:1; min-width:0; border:1.5px solid var(--fg); border-radius:10px; padding:6px 10px; background:var(--surface); }
+  .yt small { display:block; margin-top:6px; color:var(--muted); font-size:0.8rem; }
+
   .toast { position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom,0px) + 20px); transform:translateX(-50%); background:var(--fg); color:var(--bg); padding:10px 18px; border-radius:12px; font-weight:600; z-index:60; max-width:calc(100vw - 32px); }
   .foot { border-top:1px solid var(--line); padding:24px 0 48px; color:var(--muted); font-size:0.9rem; background:color-mix(in srgb, var(--bg) 80%, transparent); }
 
@@ -360,6 +366,11 @@
       <button type="button" data-v="24" aria-pressed="false">24 hour</button>
       <button type="button" data-v="12" aria-pressed="false">12 hour</button>
     </div>
+  </div>
+  <div class="yt" id="ytRow" hidden>
+    <span>YouTube key (optional)</span>
+    <div class="ytf"><input id="ytKey" type="password" autocomplete="off" aria-label="YouTube Data API key" placeholder="Paste a free YouTube key"><button class="btn btn-quiet" id="ytSave" type="button">Save</button></div>
+    <small>With a key, video steps play relevant, ranked YouTube videos inside the page. The key stays in this browser only. Leave it empty to remove it.</small>
   </div>
   <p class="note-mono">Black and White use no accent colour. The floating background stops by itself if your device asks for reduced motion. Your choices are saved in this browser.</p>
 </div>
@@ -679,6 +690,8 @@
     quota_exceeded: ["YouTube's daily limit was reached", "The free YouTube quota is used up for today. Try again tomorrow, or search YouTube yourself."],
     youtube_error: ["YouTube didn't answer", "Try again in a moment."],
     no_videos: ["No good videos found", "Nothing embeddable came back for this search. You can search YouTube yourself."],
+    need_key: ["In-page videos need a free YouTube key", "Open Customize and paste a free YouTube key to see the best, relevant videos right here. Without one, this site has no reliable source of relevant videos, so use the YouTube search below."],
+    bad_key: ["That YouTube key was rejected", "Check the key under Customize. It must be a YouTube Data API v3 key."],
     no_results: ["No articles found", "Wikipedia has nothing on that wording. Try a more common name for the topic."],
     no_notes: ["Can't read this page without a key", "Only Wikipedia, Wikibooks and GitHub pages can be turned into notes here. Use the link to read the original."],
     no_quiz: ["Not enough text for a test", "This phase has too little readable text to build questions from."],
@@ -1095,7 +1108,7 @@
       btns.push(b); list.appendChild(b);
     });
     body.appendChild(player); body.appendChild(info);
-    if (KEYLESS) body.appendChild(h("p", { class: "vnote" }, ["Says \u201crefused to connect\u201d? That video site doesn't allow embedding. ", h("button", { class: "btn btn-quiet", type: "button", text: "Skip this site", onclick: function () {
+    if (KEYLESS && vids[0].embed) body.appendChild(h("p", { class: "vnote" }, ["Says \u201crefused to connect\u201d? That video site doesn't allow embedding. ", h("button", { class: "btn btn-quiet", type: "button", text: "Skip this site", onclick: function () {
       var K = window.WaypointKeyless, hn = K.hostOf(vids[curIdx].embed); K.blockHost(hn);
       var rest = vids.filter(function (x) { return K.hostOf(x.embed) !== hn; }), key = "v|" + (it.query || (it.title + " " + it.source));
       if (rest.length) { cacheSet(key, rest); renderVideos(it, rest); } else { cacheSet(key, null); loadVideos(it); }
@@ -1368,6 +1381,11 @@
     save(); update(); syncDone();
   });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !$("#reader").hidden) closeReader(); });
+  if (KEYLESS) {
+    var K = window.WaypointKeyless, yr = $("#ytRow"), yi = $("#ytKey"); yr.hidden = false;
+    if (K.getKey()) yi.placeholder = "Key saved. Paste a new one to replace it.";
+    $("#ytSave").addEventListener("click", function () { var v = yi.value.trim(); K.setKey(v); yi.value = ""; yi.placeholder = v ? "Key saved. Paste a new one to replace it." : "Paste a free YouTube key"; toast(v ? "YouTube key saved in this browser." : "YouTube key removed."); });
+  }
   $("#go").addEventListener("click", generate);
   $("#topic").addEventListener("keydown", function (e) { if (e.key === "Enter") generate(); });
   $("#stop").addEventListener("click", function () { if (ctl) ctl.abort(); });

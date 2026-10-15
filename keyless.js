@@ -160,25 +160,47 @@
   var GENERIC = /^(explained|explain|tutorial|tutorials|full|course|courses|real|project|projects|walkthrough|beginners|beginner|for|in|a|an|the|and|of|to|with|how|what|is|learn|intro|introduction|guide|basics)$/;
   function keywords(q) { return (String(q).toLowerCase().match(/[a-z0-9][a-z0-9+#.-]*/g) || []).filter(function (w) { return w.length > 1 && !GENERIC.test(w); }); }
   function stem(w) { var t = w.replace(/(ing|es|ed|s)$/, ""); return t.length >= 3 ? t : w; }
+  var YT_KEY = "wp-ytkey"; /* optional, free key the visitor pastes; stays in their browser */
+  function getKey() { try { return localStorage.getItem(YT_KEY) || ""; } catch (e) { return ""; } }
+  function setKey(k) { try { if (k) localStorage.setItem(YT_KEY, k); else localStorage.removeItem(YT_KEY); } catch (e) {} }
+  function secs(iso) { var m = /^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso || ""); return m ? (+m[1] || 0) * 86400 + (+m[2] || 0) * 3600 + (+m[3] || 0) * 60 + (+m[4] || 0) : 0; }
+  function ytGet(url, signal) {
+    return fetch(url, { signal: signal }).then(function (r) {
+      if (r.status === 400) throw { code: "bad_key" };
+      if (r.status === 403) throw { code: "quota_exceeded" };
+      if (!r.ok) throw { code: "youtube_error" };
+      return r.json();
+    }, function (e) { if (e && e.name === "AbortError") throw { code: "cancelled" }; throw { code: "network" }; });
+  }
+  /* Real YouTube results, relevance first: the title must mention the topic words; views, likes and comments order the rest. */
   function videos(q, signal) {
-    var kw = keywords(q), query = kw.length ? kw.join(" ") : q;
-    return getJson("https://sepiasearch.org/api/v1/search/videos?" + qs({ search: query, count: 30, nsfw: "false", sort: "-match" }) + "&languageOneOf=en&languageOneOf=_unknown", signal).then(function (j) {
-      var need = Math.max(1, Math.ceil(kw.length * 0.75)), v = [];
-      (j.data || []).forEach(function (x) {
-        if (!(x.embedUrl && /^https:\/\//.test(x.embedUrl) && x.duration >= 120 && isEnglish(x) && allowed({ embed: x.embedUrl }))) return;
-        var title = String(x.name || "").toLowerCase(), rest = (String(x.description || "") + " " + (x.tags || []).join(" ")).toLowerCase(), inTitle = 0, inRest = 0;
-        kw.forEach(function (w) { var st = stem(w); if (title.indexOf(st) !== -1) inTitle++; else if (rest.indexOf(st) !== -1) inRest++; });
-        if (kw.length && (inTitle < 1 || inTitle + inRest < need)) return; /* off-topic: drop it, however popular */
-        var rel = kw.length ? (inTitle * 2 + inRest) / (kw.length * 2) : 0.5, views = +x.views || 0, likes = +x.likes || 0;
-        var pop = 0.6 * Math.min(Math.log10(views + 1) / 6, 1) + 0.4 * Math.min(Math.log10(likes + 1) / 4, 1);
-        v.push({ id: String(x.uuid || ""), embed: x.embedUrl, title: String(x.name || "Video"), channel: (x.channel && x.channel.displayName) || (x.account && x.account.displayName) || "PeerTube",
-          thumb: /^https:\/\//.test(x.thumbnailUrl || "") ? x.thumbnailUrl : "", sec: +x.duration || 0, views: views, likes: likes, comments: 0, score: Math.round((0.65 * rel + 0.35 * pop) * 100) / 10 });
+    var key = getKey(); if (!key) return Promise.reject({ code: "need_key" });
+    var kw = keywords(q), need = Math.max(1, Math.ceil(kw.length * 0.75)), base = "https://www.googleapis.com/youtube/v3/";
+    return ytGet(base + "search?" + qs({ part: "snippet", type: "video", maxResults: 20, videoEmbeddable: "true", safeSearch: "moderate", relevanceLanguage: "en", q: q, key: key }), signal).then(function (sj) {
+      var ids = (sj.items || []).map(function (i) { return i.id && i.id.videoId; }).filter(Boolean);
+      if (!ids.length) throw { code: "no_videos" };
+      return ytGet(base + "videos?" + qs({ part: "snippet,statistics,contentDetails,status", id: ids.join(","), key: key }), signal);
+    }).then(function (vj) {
+      var out = [];
+      (vj.items || []).forEach(function (x) {
+        var sn = x.snippet || {}, st = x.statistics || {}, sec = secs(x.contentDetails && x.contentDetails.duration), title = String(sn.title || "");
+        if ((x.status && x.status.embeddable === false) || (sn.liveBroadcastContent && sn.liveBroadcastContent !== "none") || sec < 120 || sec > 4 * 3600) return;
+        var lang = String(sn.defaultAudioLanguage || sn.defaultLanguage || "").toLowerCase();
+        if (lang ? lang.indexOf("en") !== 0 : (title.match(/[\x00-\x7F]/g) || []).length / (title.length || 1) < 0.95) return;
+        var low = title.toLowerCase(), rest = String(sn.description || "").toLowerCase().slice(0, 600), inT = 0, inR = 0;
+        kw.forEach(function (w) { var s2 = stem(w); if (low.indexOf(s2) !== -1) inT++; else if (rest.indexOf(s2) !== -1) inR++; });
+        if (kw.length && (inT < 1 || inT + inR < need)) return;
+        var views = +st.viewCount || 0, likes = +st.likeCount || 0, com = +st.commentCount || 0, lr = views > 0 ? likes / views : 0;
+        var pop = 0.5 * Math.min(Math.log10(views + 1) / 7, 1) + 0.3 * Math.min(Math.log10(likes + 1) / 6, 1) + 0.1 * Math.min(Math.log10(com + 1) / 5, 1) + 0.1 * Math.min(lr / 0.05, 1);
+        var rel = kw.length ? (inT * 2 + inR) / (kw.length * 2) : 0.5, th = sn.thumbnails || {};
+        out.push({ id: x.id, title: title, channel: String(sn.channelTitle || ""), thumb: (th.medium || th.default || {}).url || "", sec: sec, views: views, likes: likes, comments: com, score: Math.round((0.6 * rel + 0.4 * pop) * 100) / 10 });
       });
-      v.sort(function (a, b) { return b.score - a.score; });
-      if (!v.length) throw { code: "no_videos" };
-      return v.slice(0, 4);
+      out.sort(function (a, b) { return b.score - a.score; });
+      var per = {}; out = out.filter(function (v) { per[v.channel] = (per[v.channel] || 0) + 1; return per[v.channel] <= 2; });
+      if (!out.length) throw { code: "no_videos" };
+      return out.slice(0, 4);
     });
   }
 
-  window.WaypointKeyless = { path: path, notes: notes, quiz: quiz, videos: videos, filter: function (l) { return l.filter(allowed); }, blockHost: blockHost, hostOf: hostOf };
+  window.WaypointKeyless = { path: path, notes: notes, quiz: quiz, videos: videos, getKey: getKey, setKey: setKey, filter: function (l) { return l.filter(function (v) { return !v.embed; }); } };
 })();
